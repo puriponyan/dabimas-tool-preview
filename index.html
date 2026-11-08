@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f3a2e">
+  <meta name="description" content="ダビマス配合計画 計画作成・一覧・編集の試作版">
+  <title>ダビマス配合計画</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1 class="title">ダビマス配合計画</h1>
+      <p class="version">計画編集テスト v0.2.0</p>
+    </header>
+
+    <p class="notice" role="note">試作版：データは再読み込み・画面を閉じると消えます。実際の牧場データは入力しないでください。</p>
+
+    <section id="list-screen" class="screen" aria-labelledby="list-heading">
+      <div class="screen-head">
+        <h2 id="list-heading" class="screen-title" tabindex="-1">計画一覧</h2>
+        <button type="button" id="new-button" class="button button-primary">新規作成</button>
+      </div>
+
+      <p id="result-message" class="result" role="status" aria-live="polite"></p>
+
+      <p id="empty-message" class="empty">計画はまだありません。「新規作成」から計画を登録してください。</p>
+
+      <ul id="plan-list" class="plan-list" aria-label="登録した計画"></ul>
+    </section>
+
+    <section id="form-screen" class="screen" aria-labelledby="form-heading" hidden>
+      <div class="form-head">
+        <span id="form-mode" class="mode-badge mode-new">新規</span>
+        <h2 id="form-heading" class="screen-title" tabindex="-1">新規作成</h2>
+      </div>
+      <p id="form-description" class="form-description">新しい計画を一覧に登録します。</p>
+
+      <form id="plan-form" class="form" novalidate>
+        <div class="field">
+          <label for="plan-name" class="label">計画名 <span class="required">必須</span></label>
+          <input type="text" id="plan-name" name="name" class="input" autocomplete="off" aria-describedby="plan-name-error" required>
+          <p id="plan-name-error" class="field-error" hidden>計画名を入力してください（空白だけは登録できません）。</p>
+        </div>
+
+        <div class="field">
+          <label for="plan-sire" class="label">父側の馬名 <span class="optional">任意</span></label>
+          <input type="text" id="plan-sire" name="sire" class="input" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="plan-dam" class="label">母側の馬名 <span class="optional">任意</span></label>
+          <input type="text" id="plan-dam" name="dam" class="input" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="plan-status" class="label">状態</label>
+          <select id="plan-status" name="status" class="input">
+            <option value="計画" selected>計画</option>
+            <option value="予約">予約</option>
+            <option value="実行済み">実行済み</option>
+          </select>
+          <p class="hint">「予約」は記録用の状態です。通知やゲーム操作は行いません。</p>
+        </div>
+
+        <div class="field">
+          <label for="plan-memo" class="label">メモ <span class="optional">任意</span></label>
+          <textarea id="plan-memo" name="memo" class="input textarea" rows="4"></textarea>
+        </div>
+
+        <div class="actions">
+          <button type="submit" id="submit-button" class="button button-primary">一覧に登録</button>
+          <button type="button" id="cancel-button" class="button button-secondary">キャンセル</button>
+        </div>
+      </form>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
