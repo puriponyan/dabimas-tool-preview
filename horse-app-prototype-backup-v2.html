@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>所有馬管理アプリ 最小試作</title>
+<style>
+/* 単体表示用の最小ラッパー（チャット内表示のテーマ変数の代替。値は近似であり、チャット内の見た目と同一ではない） */
+:root{--surface-1:#f4f3ef;--surface-2:#ffffff;--border:#d3d1c7;--text:#2c2c2a;--text-secondary:#5f5e5a;--text-danger:#a32d2d;--bg-warning:#faeeda;--text-warning:#854f0b;--radius:8px;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--surface-1:#2c2c2a;--surface-2:#1f1e1d;--border:#5f5e5a;--text:#f1efe8;--text-secondary:#b4b2a9;--text-danger:#f09595;--bg-warning:#412402;--text-warning:#fac775}}
+body{margin:0;padding:12px;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:var(--surface-2);color:var(--text)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+<!-- ここから下は、最後に表示した試作画面のコードそのまま（手作業での複写） -->
+<h2 class="sr-only">文章から基本情報、時点、解析能力、適性、解析コメント、メモリを取り込み、確認する試作画面</h2>
+<div style="background:var(--surface-1);border-radius:12px;padding:1rem;">
+<div id="s0" style="display:none;">
+<p style="font-size:16px;font-weight:500;margin:0 0 4px;">所有馬一覧</p>
+<p style="font-size:13px;color:var(--text-danger);margin:0 0 8px;">登録内容は未保存です（この画面を開いている間だけ保持され、再読み込みすると消えます）</p>
+<p id="flash" style="display:none;font-size:14px;font-weight:500;background:var(--bg-warning);color:var(--text-warning);border-radius:var(--radius);padding:10px 12px;margin:0 0 12px;">登録しました（未保存）</p>
+<p id="cnt" style="font-size:14px;margin:0 0 8px;"></p>
+<div id="lst"></div>
+<button id="add" style="width:100%;min-height:44px;font-size:16px;margin:12px 0 0;">＋ 馬を登録</button>
+<div style="margin:16px 0 0;border-top:0.5px solid var(--border);padding-top:12px;">
+<p style="font-size:13px;color:var(--text-danger);margin:0 0 8px;">登録しただけではファイルに保存されません。復元には書き出したバックアップが必要です。</p>
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+<button id="bexp" style="min-height:44px;font-size:15px;">バックアップを書き出す</button>
+<button id="bimp" style="min-height:44px;font-size:15px;">バックアップを読み込む</button>
+</div>
+<input id="bfile" type="file" accept=".json,application/json" style="display:none">
+<p id="bnote" style="display:none;font-size:13px;margin:8px 0 0;word-break:break-word;"></p>
+<div id="imp" style="display:none;margin:8px 0 0;background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;"></div>
+</div>
+</div>
+<div id="s3" style="display:none;">
+<p style="font-size:16px;font-weight:500;margin:0 0 4px;">詳細</p>
+<p style="font-size:13px;color:var(--text-danger);margin:0 0 8px;">登録時点の内容です。未保存（この画面を開いている間だけ保持）</p>
+<div id="dt"></div>
+<button id="dback" style="width:100%;min-height:44px;font-size:16px;margin:12px 0 0;">一覧へ戻る</button>
+</div>
+<div id="s1">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 12px;"><p style="font-size:16px;font-weight:500;margin:0;">入力・編集</p><button id="toList" style="min-height:44px;font-size:15px;padding:0 12px;">一覧へ</button></div>
+<label for="txt" style="font-size:14px;color:var(--text-secondary);">貼り付ける文章</label>
+<textarea id="txt" rows="7" placeholder="文章を貼り付け" style="width:100%;box-sizing:border-box;margin:6px 0 12px;font-size:16px;line-height:1.5;"></textarea>
+<button id="mk" style="width:100%;min-height:44px;font-size:16px;margin:0 0 12px;">候補を作成</button>
+<div id="ask" style="display:none;background:var(--bg-warning);color:var(--text-warning);border-radius:var(--radius);padding:10px 12px;margin:0 0 12px;">
+<p style="font-size:14px;margin:0 0 8px;">入力原文が変更されています。修正した内容を破棄して、新しい候補を作りますか。</p>
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+<button id="askno" style="min-height:44px;font-size:15px;">キャンセル</button>
+<button id="askyes" style="min-height:44px;font-size:15px;">破棄して作成</button>
+</div></div>
+<div id="ask2" style="display:none;background:var(--bg-warning);color:var(--text-warning);border-radius:var(--radius);padding:10px 12px;margin:0 0 12px;">
+<p style="font-size:14px;margin:0 0 8px;">未登録の入力・修正があります。破棄して一覧へ戻りますか。</p>
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+<button id="ask2no" style="min-height:44px;font-size:15px;">キャンセル</button>
+<button id="ask2yes" style="min-height:44px;font-size:15px;">破棄して一覧へ</button>
+</div></div>
+<div id="n1" style="margin:0 0 8px;"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 基本情報</p>
+<label for="nm" style="font-size:14px;color:var(--text-secondary);display:block;margin:0 0 4px;">馬名</label>
+<input id="nm" type="text" style="width:100%;box-sizing:border-box;margin:0 0 10px;font-size:16px;" />
+<div id="cb"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 画面表示時点</p>
+<div id="cd"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 解析時点</p>
+<div id="ca"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 解析能力</p>
+<div id="ce"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 適性</p>
+<div id="cf"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 解析コメント</p>
+<div id="cg"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ メモリ・成長情報</p>
+<label for="mem" style="font-size:14px;color:var(--text-secondary);">メモリ</label>
+<select id="mem" style="width:100%;margin:6px 0 4px;font-size:16px;">
+<option value="不明" selected>不明</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+</select>
+<p id="flag1" style="display:none;font-size:13px;color:var(--text-danger);margin:0 0 8px;">不明・要確認</p>
+<div id="g1" style="display:none;margin:8px 0 0;">
+<p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">成長情報（原文）</p>
+<div id="g1t" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:15px;white-space:pre-wrap;word-break:break-word;"></div>
+</div>
+<p id="err" style="font-size:13px;color:var(--text-danger);margin:12px 0 8px;min-height:18px;"></p>
+<button id="go" style="width:100%;min-height:44px;font-size:16px;">登録内容を確認</button>
+<p style="font-size:13px;color:var(--text-secondary);margin:12px 0 0;">この試作は入力データを永続保存しません</p>
+</div>
+<div id="s2" style="display:none;">
+<p style="font-size:16px;font-weight:500;margin:0 0 12px;">確認</p>
+<div id="n2" style="margin:0 0 8px;"></div>
+<p style="font-size:14px;font-weight:500;margin:8px 0 8px;">■ 基本情報</p>
+<p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">馬名</p>
+<p id="o-nm" style="font-size:16px;font-weight:500;margin:0 0 8px;word-break:break-word;"></p>
+<div id="oc1"></div>
+<p style="font-size:14px;font-weight:500;margin:12px 0 8px;">■ 画面表示時点</p>
+<div id="oc2"></div>
+<p style="font-size:14px;font-weight:500;margin:12px 0 8px;">■ 解析時点</p>
+<div id="oc3"></div>
+<p style="font-size:14px;font-weight:500;margin:12px 0 8px;">■ 解析能力</p>
+<div id="oc4"></div>
+<p style="font-size:14px;font-weight:500;margin:12px 0 8px;">■ 適性</p>
+<div id="oc5"></div>
+<p style="font-size:14px;font-weight:500;margin:12px 0 8px;">■ 解析コメント</p>
+<div id="oc6"></div>
+<p style="font-size:14px;font-weight:500;margin:12px 0 8px;">■ メモリ・成長情報</p>
+<p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">メモリ</p>
+<p id="o-mem" style="font-size:16px;font-weight:500;margin:0 0 12px;"></p>
+<div id="g2" style="display:none;margin:0 0 12px;">
+<p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">成長情報（原文）</p>
+<div id="g2t" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:15px;white-space:pre-wrap;word-break:break-word;"></div>
+</div>
+<details style="margin:0 0 12px;">
+<summary style="font-size:14px;color:var(--text-secondary);cursor:pointer;min-height:32px;">入力原文</summary>
+<div id="o-txt" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:15px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:6px 0 0;"></div>
+</details>
+<p style="font-size:13px;color:var(--text-danger);margin:0 0 12px;">登録しただけでは保存されません。再読み込みすると画面内のデータは消えますが、書き出したバックアップから復元できます。</p>
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+<button id="back" style="min-height:44px;font-size:16px;">戻って修正</button>
+<button id="reg" style="min-height:44px;font-size:16px;">一覧へ登録（今回のみ）</button>
+</div>
+</div>
+</div>
+<script>
+function z2h(s){return s.replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-65248)}).replace(/[．]/g,".").replace(/[－−]/g,"-")}
+function fieldAll(text,label){
+var re=new RegExp("^([\\s>#\\-+*_・●•]*(?:\\d+[.)]\\s*)?)"+label+"([\\s*_]*)[：:][\\s*_]*(.*)$");
+var L=text.split(/\r?\n/),out=[];
+for(var i=0;i<L.length;i++){var m=re.exec(L[i]);if(!m)continue;
+var v=m[3];
+if(/(\*\*|__)/.test(m[1]+m[2]))v=v.replace(/\s*(\*\*|__)\s*$/,"");
+v=v.trim();if(v!=="")out.push(v);}
+return out;}
+function uniq(a){return a.filter(function(x,i){return a.indexOf(x)===i})}
+function memTokens(text){
+var re=/メモリ[\s*_]*[：:]?[\s*_]*([-－−]?[0-9０-９]+(?:[.．][0-9０-９]+)?)/g,out=[],m;
+while((m=re.exec(text))){out.push(z2h(m[1]));}
+return out;}
+function validMem(t){return /^[1-6]$/.test(t)}
+function parse(text){
+var names=uniq(fieldAll(text,"馬名")),growths=uniq(fieldAll(text,"成長タイプ"));
+var tk=memTokens(text),mem="不明",flag=false;
+if(tk.length){
+var d=uniq(tk);
+if(d.some(function(t){return !validMem(t)})||d.length>1){flag=true}else{mem=d[0]}}
+if(growths.length>1){
+var keys=uniq(growths.map(function(g){return memTokens(g).sort().join(",")}));
+if(keys.length>1){flag=true;mem="不明"}}
+return {names:names,growths:growths,mem:mem,flag:flag};}
+var S={src:null,name:"",nameU:false,nameConf:null,memNote:false,growth:"",growthList:[],mem:"不明",memU:false,flag:false};
+function build(text){var p=parse(text);
+S.nameConf=p.names.length>1?p.names:null;
+S.growthList=p.growths;
+S.growth=p.growths.length===1?p.growths[0]:"";
+if(!S.nameU)S.name=p.names.length===1?p.names[0]:"";
+S.memNote=p.flag;
+if(!S.memU){S.mem=p.mem;S.flag=p.flag;}
+var c=collect(text);var dd=decideDist(c.dist);DN.n=dd.n;DN.c=dd.c;var cm=commentExtract(text);CMN.n=cm.un;
+KEYS.forEach(function(k){var d=(k==="dLo"||k==="dHi")?{v:k==="dLo"?dd.lo:dd.hi,n:false,c:[]}:(CM.indexOf(k)>=0)?{v:uniq(cm.res[k]).join("\n"),n:false,c:[]}:decide(k,c[k]);F[k].n=d.n;F[k].c=d.c||[];if(!F[k].u){F[k].v=d.v;F[k].raw=d.v;F[k].m=false;}});
+S.src=text;}
+function needsDiscard(text){return S.src!==null&&text!==S.src&&(S.nameU||S.memU||anyFU());}
+function discardBuild(text){S.nameU=false;S.memU=false;KEYS.forEach(function(k){F[k].u=false});build(text);}
+function setMem(v){S.mem=v;S.memU=true;S.flag=false;}
+function setName(v){S.name=v;S.nameU=true;}
+function growthConf(){return S.growthList.length>1;}
+function showGrowth(){return S.mem==="不明"&&S.growthList.length>0;}
+function notesLines(){var o=[];
+if(S.nameConf){o.push({t:"馬名：原文に異なる記載があります（要確認）",d:true});S.nameConf.forEach(function(v){o.push({t:"・"+v,d:false})});}
+if(growthConf()){o.push({t:"成長情報：原文に異なる記載があります（要確認）",d:true});if(showGrowth())S.growthList.forEach(function(v){o.push({t:"・"+v,d:false})});}
+if(S.memNote)o.push({t:"メモリ：原文に不正または矛盾する記載があります（要確認）",d:true});
+KEYS.forEach(function(k){if(F[k].n)o.push({t:LBL[k]+"：原文に不正または矛盾する記載があります（要確認）",d:true});if(LK.indexOf(k)>=0)F[k].c.forEach(function(v){o.push({t:"・"+v,d:false})});});
+if(CMN.n)o.push({t:"解析コメント：未対応の表現があるため抽出結果は要確認",d:true});
+if(DN.n){o.push({t:"距離適性：原文に不正または矛盾する記載があります（要確認）",d:true});DN.c.forEach(function(v){o.push({t:"・"+v,d:false})});}
+return o;}
+
+var KEYS=["sex","color","dAge","dYear","dMonth","dWeek","aAge","aMonth","aWeek","cls","spd","sta","grt","tmp","con","sty","dLo","dHi","apt","tal","fut","fea","exp"];
+var CM=["tal","fut","fea","exp"];
+var CMN={n:false};
+var LK=["spd","sta","grt","tmp","con","apt","sty"];
+var DN={n:false,c:[]};
+var MSG="範囲外または不正な値です";
+var AB=["spd","sta","grt","tmp","con"];
+var OPT={sex:["牡","牝","セン"],cls:["現在能力","潜在能力"]};AB.forEach(function(k){OPT[k]=["A","B","C","D","E"]});
+var LBL={sex:"性別",color:"毛色",dAge:"表示年齢",dYear:"ゲーム内年",dMonth:"表示月",dWeek:"表示週",aAge:"解析年齢",aMonth:"解析月",aWeek:"解析週",cls:"能力区分",spd:"スピード",sta:"スタミナ",grt:"根性",tmp:"気性",con:"体質",sty:"脚質",dLo:"距離適性下限",dHi:"距離適性上限",apt:"適応力",tal:"素質評価",fut:"将来評価",fea:"特徴",exp:"期待と条件"};
+var UNIT={dAge:"歳",aAge:"歳",dYear:"年目",dMonth:"月",aMonth:"月",dWeek:"週",aWeek:"週"};
+var F={};KEYS.forEach(function(k){F[k]={v:"",raw:"",u:false,n:false,m:false,c:[]}});
+var T="(-?[0-9]+(?:\\.[0-9]+)?)";
+function anyFU(){return KEYS.some(function(k){return F[k].u})}
+function ints(v,unit){var re=new RegExp(T+"\\s*"+unit,"g"),o=[],m;while((m=re.exec(v)))o.push(m[1]);return o;}
+function okInt(k,t){if(!/^(0|[1-9][0-9]*)$/.test(t))return false;var n=+t;
+if(k==="dAge"||k==="aAge")return true;if(k==="dYear")return n>=1;
+if(k==="dMonth"||k==="aMonth")return n>=1&&n<=12;return n>=1&&n<=5;}
+function okVal(k,t){if(CM.indexOf(k)>=0)return true;if(k==="dLo"||k==="dHi")return /^[1-9][0-9]*$/.test(t);if(k==="apt")return /^[A-Z]$/.test(t);if(k==="sty")return true;if(k==="cls")return t==="現在能力"||t==="潜在能力";if(AB.indexOf(k)>=0)return /^[A-E]$/.test(t);return k==="sex"?(t==="牡"||t==="牝"||t==="セン"):k==="color"?true:okInt(k,t);}
+function collect(text){var c={};KEYS.forEach(function(k){c[k]=[]});
+function ln(l){return fieldAll(text,l).map(z2h)}
+ln("性別・年齢").forEach(function(v){
+ints(v,"歳").forEach(function(t){c.dAge.push(t)});
+var r=v.replace(new RegExp(T+"\\s*歳","g"),"").replace(/[\s・\/／,、]+/g," ").trim();
+if(r!=="")c.sex.push(r);});
+ln("性別").forEach(function(v){c.sex.push(v.trim())});
+ln("年齢").forEach(function(v){var m=new RegExp("^"+T+"\\s*歳?$").exec(v);c.dAge.push(m?m[1]:v)});
+ln("毛色").forEach(function(v){c.color.push(v)});
+ln("ゲーム内年数").forEach(function(v){
+ints(v,"年(?:目)?").forEach(function(t){c.dYear.push(t)});
+ints(v,"月").forEach(function(t){c.dMonth.push(t)});
+ints(v,"週").forEach(function(t){c.dWeek.push(t)});});
+ln("解析時期").forEach(function(v){
+ints(v,"歳").forEach(function(t){c.aAge.push(t)});
+ints(v,"月").forEach(function(t){c.aMonth.push(t)});
+ints(v,"週").forEach(function(t){c.aWeek.push(t)});});
+AB.forEach(function(k){fieldAll(text,LBL[k]).forEach(function(v){c[k].push(rank(v))})});
+fieldAll(text,"脚質").forEach(function(v){c.sty.push(v)});
+fieldAll(text,"適応力").forEach(function(v){c.apt.push(rank(v))});
+c.dist=fieldAll(text,"距離適性").map(distEntry);
+return c;}
+function distEntry(raw){var p=distParse(raw);
+if(p&&/^[1-9][0-9]*$/.test(p.lo)&&/^[1-9][0-9]*$/.test(p.hi)&&+p.lo<=+p.hi)return {key:p.lo+"-"+p.hi,raw:raw,ok:true,lo:p.lo,hi:p.hi};
+return {key:"!"+raw,raw:raw,ok:false};}
+function distParse(raw){var s=z2h(raw).replace(/[ｍＭM]/g,"m").replace(/[～〜~–—]/g,"-");
+var m=/^\s*([0-9]+(?:\.[0-9]+)?)\s*m?\s*-\s*([0-9]+(?:\.[0-9]+)?)\s*m?\s*$/.exec(s);
+return m?{lo:m[1],hi:m[2]}:null;}
+function decideDist(a){var seen={},d=[];a.forEach(function(e){if(!seen[e.key]){seen[e.key]=1;d.push(e)}});
+if(!d.length)return {lo:"",hi:"",n:false,c:[]};
+if(d.length===1&&d[0].ok)return {lo:d[0].lo,hi:d[0].hi,n:false,c:[]};
+return {lo:"",hi:"",n:true,c:d.map(function(e){return e.raw})};}
+function pairErr(){return F.dLo.v!==""&&F.dHi.v!==""&&+F.dLo.v>+F.dHi.v;}
+function distDisp(){if(pairErr())return"不明（要確認）";
+function part(k){return F[k].m?"不明（要確認）":F[k].v!==""?F[k].v+"m":((DN.n&&!F[k].u)?"不明・要確認":"不明");}
+var a=part("dLo"),b=part("dHi");
+if(F.dLo.v!==""&&F.dHi.v!=="")return F.dLo.v+"m ～ "+F.dHi.v+"m";
+if(a===b&&F.dLo.v==="")return a;
+return"下限 "+a+"／上限 "+b;}
+function errText(k){if(F[k].m)return MSG;return(k==="dHi"&&pairErr())?"下限が上限を超えています":"";}
+var CMT=[
+{c:"tal",src:"これは凄い素質の馬ですね",out:"凄い素質"},
+{c:"fut",src:"将来はいくつかのタイトルも狙えるでしょうね",out:"いくつかのタイトルを狙える"},
+{c:"fea",src:"スピードが付きそうな馬体ですね",out:"スピードが付きそう"},
+{c:"exp",src:"調教さえ上手くいけば三冠もあると思います",out:"調教が上手くいけば三冠の可能性"},
+{c:"exp",src:"調教さえ巧くいけば三冠もあると思います",out:"調教が上手くいけば三冠の可能性"},
+{c:"fut",src:"これならどこに出しても恥ずかしくないでしょう",out:"どこに出しても恥ずかしくないとの評価"},
+{c:"exp",src:"しっかり育てて活躍してもらいましょう",out:"しっかり育てて活躍を期待"},
+{c:"fut",src:"期待できます",out:"期待できる"}];
+var CMX=[{src:"まずは桜花賞を目指しましょう"}];
+function cmNorm(s){return s.replace(/[\s。！？!?*_]/g,"");}
+function cmFind(list,k){for(var i=0;i<list.length;i++){if(cmNorm(list[i].src)===k)return list[i];}return null;}
+function headOf(line){
+var d=line.replace(/^[\s>#\-+*_・●•■□◆◇▼▽【\[「『]*/,"");
+var m=/^(博士コメント|特徴|目標レース|解析コメント)\s*[】\]」』]?\s*(?:\*\*|__)?\s*(?:[：:]\s*(?:\*\*|__)?\s*(.*))?$/.exec(d);
+return m?{name:m[1],rest:(m[2]||"")}:null;}
+function isOtherHead(line){
+var d=line.replace(/^[\s>#\-+*_・●•■□◆◇▼▽【\[「『]*/,"");
+return /^[^：:。、！!？?\s]{1,15}\s*[】\]」』]?\s*(?:\*\*|__)?\s*[：:]/.test(d)||/^\s*[【\[■□◆◇▼▽][^】\]：:]{1,15}[】\]]?\s*$/.test(line);}
+function commentExtract(text){
+var res={tal:[],fut:[],fea:[],exp:[]},un=false,sec=null,cur=[];
+function add(s){var t=s.replace(/^[\s>#\-+*_・●•]+/,"");
+(t.match(/[^。！？!?]+[。！？!?]*/g)||[]).forEach(function(p){if(cmNorm(p)!=="")cur.push(p)});}
+function flush(){var i=0;
+while(i<cur.length){var hit=false;
+for(var j=i;j<cur.length&&j<i+4;j++){var k=cmNorm(cur.slice(i,j+1).join(""));
+var e=cmFind(CMT,k);
+if(e){res[e.c].push(e.out);hit=true;}else if(cmFind(CMX,k)){hit=true;}
+if(hit){i=j+1;break;}}
+if(!hit){un=true;i++;}}
+cur=[];}
+text.split(/\r?\n/).forEach(function(line){
+var h=headOf(line);
+if(h){flush();sec=h.name;add(h.rest);return;}
+if(isOtherHead(line)){flush();sec=null;return;}
+if(line.trim()===""){flush();return;}
+if(sec)add(line);});
+flush();
+return {res:res,un:un};}
+function rank(v){return v.replace(/[Ａ-Ｚａ-ｚ]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-65248)}).toUpperCase().trim();}
+function decide(k,a){a=uniq(a);if(!a.length)return {v:"",n:false,c:[]};
+if(a.some(function(t){return !okVal(k,t)})||a.length>1)return {v:"",n:true,c:a};
+return {v:a[0],n:false};}
+function setF(k,raw){var f=F[k];f.u=true;f.raw=raw;
+var s=CM.indexOf(k)>=0?uniq(raw.split(/\r?\n/).map(function(x){return x.trim()}).filter(function(x){return x!==""})).join("\n"):(k==="color"||k==="sty")?raw.trim():k==="apt"?rank(raw):z2h(raw).trim();
+if(s===""){f.v="";f.m=false;}else if(okVal(k,s)){f.v=s;f.m=false;}else{f.v="";f.m=true;}}
+function disp(k){var f=F[k];if(f.m)return"不明（要確認）";if(f.v==="")return(f.n&&!f.u)?"不明・要確認":"不明";
+return f.v+(UNIT[k]||"");}
+
+var $=function(i){return document.getElementById(i)};
+var pending=null,UI={},CR={};
+function mkIn(parent,k,label){
+var w=document.createElement("div");w.style.margin="0 0 10px";
+var l=document.createElement("label");l.textContent=label;
+l.style.cssText="font-size:14px;color:var(--text-secondary);display:block;margin:0 0 4px;";
+var el;
+if(OPT[k]){el=document.createElement("select");
+[["","不明"]].concat(OPT[k].map(function(x){return [x,x]})).forEach(function(o){var op=document.createElement("option");op.value=o[0];op.textContent=o[1];el.appendChild(op)});}
+else if(CM.indexOf(k)>=0){el=document.createElement("textarea");el.rows=2;el.placeholder="不明（1行に1件）";}
+else{el=document.createElement("input");el.type="text";el.placeholder="不明";if(k!=="color"&&k!=="sty"&&k!=="apt")el.setAttribute("inputmode","numeric");}
+el.style.cssText="width:100%;box-sizing:border-box;font-size:16px;";
+var er=document.createElement("p");er.style.cssText="font-size:13px;color:var(--text-danger);margin:4px 0 0;";
+el.addEventListener(OPT[k]?"change":"input",function(){
+setF(k,el.value);KEYS.forEach(function(q){UI[q].er.textContent=errText(q)});});
+w.appendChild(l);w.appendChild(el);w.appendChild(er);parent.appendChild(w);UI[k]={el:el,er:er};}
+function mkRow(parent,k,label){
+var r=document.createElement("div");
+r.style.cssText="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:15px;";
+var a=document.createElement("span");a.style.color="var(--text-secondary)";a.textContent=label;
+var b=document.createElement("span");b.style.cssText="font-weight:500;text-align:right;word-break:break-word;white-space:pre-line;";
+r.appendChild(a);r.appendChild(b);parent.appendChild(r);CR[k]=b;}
+[["cb","oc1",[["sex","性別"],["color","毛色"]]],
+["cd","oc2",[["dAge","表示年齢"],["dYear","ゲーム内年"],["dMonth","月"],["dWeek","週"]]],
+["ca","oc3",[["aAge","解析時の年齢"],["aMonth","月"],["aWeek","週"]]],
+["ce","oc4",[["cls","能力区分"],["spd","スピード"],["sta","スタミナ"],["grt","根性"],["tmp","気性"],["con","体質"]]],
+["cf","oc5",[["sty","脚質"],["dLo","距離適性 下限（m）"],["dHi","距離適性 上限（m）"],["apt","適応力"]],[["sty","脚質"],["dist","距離適性"],["apt","適応力"]]],
+["cg","oc6",[["tal","素質評価"],["fut","将来評価"],["fea","特徴"],["exp","期待と条件"]]]].forEach(function(g){
+g[2].forEach(function(f){mkIn($(g[0]),f[0],f[1]);});
+(g[3]||g[2]).forEach(function(f){mkRow($(g[1]),f[0],f[1]);});});
+function renderNotes(el){
+el.textContent="";
+notesLines().forEach(function(l){var p=document.createElement("p");
+p.style.cssText="font-size:13px;margin:0 0 4px;word-break:break-word;color:"+(l.d?"var(--text-danger)":"var(--text-secondary)");
+p.textContent=l.t;el.appendChild(p);});}
+function render(){
+$("nm").value=S.name;$("mem").value=S.mem;
+$("flag1").style.display=S.flag?"block":"none";
+renderNotes($("n1"));
+KEYS.forEach(function(k){UI[k].el.value=F[k].raw;UI[k].er.textContent=errText(k);});
+$("g1t").textContent=S.growth;
+$("g1").style.display=(showGrowth()&&!growthConf())?"block":"none";}
+function renderConfirm(text){
+$("o-nm").textContent=S.name!==""?S.name:(S.nameConf?"未確定・要確認":"未入力");
+$("o-mem").textContent=S.flag?"不明・要確認":S.mem;
+KEYS.forEach(function(k){if(CR[k])CR[k].textContent=disp(k)});
+CR.dist.textContent=distDisp();
+renderNotes($("n2"));
+$("g2t").textContent=S.growth;
+$("g2").style.display=(showGrowth()&&!growthConf())?"block":"none";
+$("o-txt").textContent=text;}
+function toConfirm(text){
+renderConfirm(text);render();
+$("s1").style.display="none";$("s2").style.display="block";}
+function run(thenConfirm){
+var t=$("txt").value;
+if(t.trim()===""){$("err").textContent="文章を入力してください";return;}
+$("err").textContent="";
+if(needsDiscard(t)){pending={text:t,confirm:thenConfirm};$("ask").style.display="block";return;}
+build(t);render();
+if(thenConfirm)toConfirm(t);}
+$("txt").addEventListener("input",function(){$("err").textContent=""});
+$("mk").addEventListener("click",function(){run(false)});
+$("go").addEventListener("click",function(){run(true)});
+$("askno").addEventListener("click",function(){pending=null;$("ask").style.display="none"});
+$("askyes").addEventListener("click",function(){
+if(!pending)return;var p=pending;pending=null;$("ask").style.display="none";
+discardBuild(p.text);render();if(p.confirm)toConfirm(p.text);});
+$("nm").addEventListener("input",function(){setName($("nm").value)});
+$("mem").addEventListener("change",function(){setMem($("mem").value);render()});
+$("back").addEventListener("click",function(){
+render();
+$("s2").style.display="none";$("s1").style.display="block";});
+
+var REG=[],seq=0;
+function resetAll(){
+S.src=null;S.name="";S.nameU=false;S.nameConf=null;S.memNote=false;S.growth="";S.growthList=[];S.mem="不明";S.memU=false;S.flag=false;
+DN.n=false;DN.c=[];CMN.n=false;
+KEYS.forEach(function(k){F[k]={v:"",raw:"",u:false,n:false,m:false,c:[]}});
+$("txt").value="";$("err").textContent="";pending=null;$("ask").style.display="none";$("ask2").style.display="none";
+render();}
+function show(id){if(id!=="s0")clearImport();["s0","s1","s2","s3"].forEach(function(x){$(x).style.display=x===id?"block":"none"})}
+function dirty(){return $("txt").value!==""||$("nm").value!==""||S.nameU||S.memU||anyFU();}
+function rt(k){var f=F[k];var fl=f.m||(f.n&&!f.u);return(f.v===""&&!fl)?"未入力":disp(k);}
+function memText(){return S.flag?"不明・要確認":S.mem;}
+function distText(){var d=distDisp();return d==="不明"?"未入力":d;}
+function nameText(){return S.name!==""?S.name:(S.nameConf?"未確定・要確認":"馬名未入力");}
+function snapshot(){
+function R(k,l){return [l,rt(k)];}
+function G(t,a){return {t:t,rows:a.map(function(x){return [String(x[0]),String(x[1])]})};}
+var mem=[["メモリ",memText()]];
+if(showGrowth()&&!growthConf())mem.push(["成長情報（原文）",S.growth]);
+seq++;
+return {id:"rec-"+seq,no:seq,text:S.src,name:S.name,nameConf:!!S.nameConf,title:nameText(),
+list:{sex:rt("sex"),age:rt("dAge"),mem:memText()},
+notes:notesLines().map(function(l){return {t:l.t,d:l.d}}),
+groups:[
+G("基本情報",[["馬名",nameText()],R("sex","性別"),R("color","毛色")]),
+G("画面表示時点",[R("dAge","表示年齢"),R("dYear","ゲーム内年"),R("dMonth","月"),R("dWeek","週")]),
+G("解析時点",[R("aAge","解析時の年齢"),R("aMonth","月"),R("aWeek","週")]),
+G("解析能力",[R("cls","能力区分"),R("spd","スピード"),R("sta","スタミナ"),R("grt","根性"),R("tmp","気性"),R("con","体質")]),
+G("適性",[R("sty","脚質"),["距離適性",distText()],R("apt","適応力")]),
+G("解析コメント",[R("tal","素質評価"),R("fut","将来評価"),R("fea","特徴"),R("exp","期待と条件")]),
+G("メモリ・成長情報",mem)]};}
+function drawLines(el,lines){el.textContent="";lines.forEach(function(l){var p=document.createElement("p");
+p.style.cssText="font-size:13px;margin:0 0 4px;word-break:break-word;color:"+(l.d?"var(--text-danger)":"var(--text-secondary)");
+p.textContent=l.t;el.appendChild(p);});}
+function drawRow(parent,a,b){var r=document.createElement("div");
+r.style.cssText="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:15px;";
+var x=document.createElement("span");x.style.color="var(--text-secondary)";x.textContent=a;
+var y=document.createElement("span");y.style.cssText="font-weight:500;text-align:right;word-break:break-word;white-space:pre-line;";y.textContent=b;
+r.appendChild(x);r.appendChild(y);parent.appendChild(r);}
+function drawHead(parent,t){var p=document.createElement("p");p.style.cssText="font-size:14px;font-weight:500;margin:12px 0 8px;";p.textContent="■ "+t;parent.appendChild(p);}
+function renderList(){
+$("cnt").textContent="登録件数："+REG.length+"件";
+var el=$("lst");el.textContent="";
+if(!REG.length){var p=document.createElement("p");p.style.cssText="font-size:14px;color:var(--text-secondary);margin:0;";
+p.textContent="まだ登録された馬はありません。「＋ 馬を登録」から追加できます。";el.appendChild(p);return;}
+REG.forEach(function(r){
+var c=document.createElement("div");c.style.cssText="background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin:0 0 8px;";
+var a=document.createElement("p");a.style.cssText="font-size:16px;font-weight:500;margin:0 0 4px;word-break:break-word;";a.textContent="No."+r.no+"　"+r.title;
+var b=document.createElement("p");b.style.cssText="font-size:14px;color:var(--text-secondary);margin:0 0 8px;word-break:break-word;";
+b.textContent="性別："+r.list.sex+"／表示年齢："+r.list.age+"／メモリ："+r.list.mem;
+var d=document.createElement("button");d.style.cssText="min-height:44px;font-size:15px;padding:0 16px;";d.textContent="詳細";
+d.addEventListener("click",function(){showDetail(r.id)});
+c.appendChild(a);c.appendChild(b);c.appendChild(d);el.appendChild(c);});}
+function showList(flash,msg){renderList();$("flash").textContent=msg||"登録しました（未保存）";$("flash").style.display=flash?"block":"none";$("bnote").style.display="none";show("s0");}
+function showDetail(id){var r=null;REG.forEach(function(x){if(x.id===id)r=x});if(!r)return;
+var el=$("dt");el.textContent="";
+var h=document.createElement("p");h.style.cssText="font-size:15px;font-weight:500;margin:0 0 4px;word-break:break-word;";h.textContent="No."+r.no+"　"+r.title;el.appendChild(h);
+var nt=document.createElement("div");nt.style.margin="0 0 8px";drawLines(nt,r.notes);el.appendChild(nt);
+r.groups.forEach(function(g){drawHead(el,g.t);g.rows.forEach(function(x){drawRow(el,x[0],x[1])});});
+var d=document.createElement("details");d.style.margin="12px 0";
+var s=document.createElement("summary");s.style.cssText="font-size:14px;color:var(--text-secondary);cursor:pointer;min-height:32px;";s.textContent="入力原文";
+var b=document.createElement("div");b.style.cssText="background:var(--surface-2);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:15px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:6px 0 0;";b.textContent=r.text;
+d.appendChild(s);d.appendChild(b);el.appendChild(d);show("s3");}
+$("reg").addEventListener("click",function(){
+if(S.src===null)return;
+REG.push(snapshot());resetAll();showList(true);});
+$("add").addEventListener("click",function(){resetAll();show("s1");});
+$("toList").addEventListener("click",function(){
+if(dirty()){$("ask2").style.display="block";return;}
+resetAll();showList(false);});
+$("ask2no").addEventListener("click",function(){$("ask2").style.display="none"});
+$("ask2yes").addEventListener("click",function(){resetAll();showList(false);});
+$("dback").addEventListener("click",function(){showList(false)});
+
+var BK_KIND="horse-app-backup",BK_VER=1,BK_MAX_BYTES=5000000,BK_MAX_REC=500,BK_MAX_TEXT=100000,BK_MAX_STR=20000,BK_MAX_NOTES=1000;
+var BK_G=[["基本情報",["性別","毛色"]],["画面表示時点",["表示年齢","ゲーム内年","月","週"]],["解析時点",["解析時の年齢","月","週"]],["解析能力",["能力区分","スピード","スタミナ","根性","気性","体質"]],["適性",["脚質","距離適性","適応力"]],["解析コメント",["素質評価","将来評価","特徴","期待と条件"]],["メモリ・成長情報",["メモリ"]]];
+function isStr(x,m){return typeof x==="string"&&x.length<=m}
+function isObj(x){return x!==null&&typeof x==="object"&&!Array.isArray(x)}
+function bkFail(m){return {ok:false,reason:m}}
+function backupJSON(){
+var recs=REG.map(function(r){return {id:r.id,no:r.no,text:r.text,name:r.name,nameConf:r.nameConf,
+notes:r.notes.map(function(l){return {t:l.t,d:l.d}}),
+groups:r.groups.map(function(g,i){var rows=g.rows.map(function(x){return [x[0],x[1]]});return {t:g.t,rows:i===0?rows.slice(1):rows}})}});
+return JSON.stringify({kind:BK_KIND,version:BK_VER,exportedAt:new Date().toISOString(),nextSeq:seq,count:recs.length,records:recs},null,1);}
+function validateBackup(text){
+if(typeof text!=="string")return bkFail("ファイルを読み取れませんでした。");
+if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+var d;try{d=JSON.parse(text)}catch(e){return bkFail("JSONとして読み取れません。")}
+if(!isObj(d))return bkFail("専用形式ではありません。");
+if(d.kind!==BK_KIND)return bkFail("このアプリのバックアップ形式ではありません。");
+if(d.version!==BK_VER)return bkFail("対応していない形式バージョンです。");
+if(!Array.isArray(d.records))return bkFail("記録の一覧が不正です。");
+if(d.count!==d.records.length)return bkFail("件数が記録数と一致しません。");
+if(d.records.length>BK_MAX_REC)return bkFail("件数が保護上限（"+BK_MAX_REC+"件）を超えています。");
+if(!Number.isInteger(d.nextSeq)||d.nextSeq<0||d.nextSeq>1000000000)return bkFail("連番情報が不正です。");
+var out=[],ids={},last=0;
+for(var i=0;i<d.records.length;i++){var r=d.records[i],p="記録"+(i+1)+"：";
+if(!isObj(r))return bkFail(p+"構造が不正です。");
+if(!Number.isInteger(r.no)||r.no<1||r.no>1000000000)return bkFail(p+"番号が不正です。");
+if(r.id!=="rec-"+r.no)return bkFail(p+"記録IDが不正です。");
+if(ids[r.id])return bkFail(p+"記録IDが重複しています。");
+ids[r.id]=1;
+if(r.no<=last)return bkFail(p+"登録順が不正です。");
+last=r.no;
+if(!isStr(r.text,BK_MAX_TEXT))return bkFail(p+"原文が不正です。");
+if(!isStr(r.name,BK_MAX_STR)||typeof r.nameConf!=="boolean")return bkFail(p+"馬名情報が不正です。");
+if(!Array.isArray(r.notes)||r.notes.length>BK_MAX_NOTES)return bkFail(p+"注意事項が不正です。");
+var notes=[];
+for(var a=0;a<r.notes.length;a++){var n=r.notes[a];
+if(!isObj(n)||!isStr(n.t,BK_MAX_STR)||typeof n.d!=="boolean")return bkFail(p+"注意事項が不正です。");
+notes.push({t:n.t,d:n.d});}
+if(!Array.isArray(r.groups)||r.groups.length!==BK_G.length)return bkFail(p+"項目の構成が不正です。");
+var title=r.name!==""?r.name:(r.nameConf?"未確定・要確認":"馬名未入力");
+var groups=[];
+for(var j=0;j<BK_G.length;j++){var g=r.groups[j];
+if(!isObj(g)||g.t!==BK_G[j][0]||!Array.isArray(g.rows))return bkFail(p+"項目の構成が不正です。");
+var labels=BK_G[j][1].slice();
+if(j===BK_G.length-1&&g.rows.length===labels.length+1)labels.push("成長情報（原文）");
+if(g.rows.length!==labels.length)return bkFail(p+"項目の数が不正です。");
+var rows=[];
+for(var k=0;k<labels.length;k++){var x=g.rows[k];
+if(!Array.isArray(x)||x.length!==2||x[0]!==labels[k]||!isStr(x[1],BK_MAX_STR))return bkFail(p+"項目の内容が不正です。");
+rows.push([x[0],x[1]]);}
+if(j===0)rows.unshift(["馬名",title]);
+groups.push({t:g.t,rows:rows});}
+out.push({id:r.id,no:r.no,text:r.text,name:r.name,nameConf:r.nameConf,title:title,
+list:{sex:groups[0].rows[1][1],age:groups[1].rows[0][1],mem:groups[6].rows[0][1]},notes:notes,groups:groups});}
+if(d.nextSeq<last)return bkFail("連番情報が記録と矛盾しています。");
+return {ok:true,records:out,nextSeq:d.nextSeq};}
+var pendingImport=null;
+function clearImport(){pendingImport=null;$("imp").style.display="none";$("imp").textContent="";}
+function bnote(msg,danger){var p=$("bnote");p.textContent=msg;p.style.color=danger?"var(--text-danger)":"var(--text-secondary)";p.style.display="block";}
+function blockReason(){if(REG.length>0)return "現在の一覧があるため読み込めません。";if(dirty())return "未登録の入力途中データがあるため読み込めません（入力は破棄していません）。";return "";}
+function pad2(n){return(n<10?"0":"")+n}
+function bkName(){var d=new Date();return "horse-backup-"+d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"-"+pad2(d.getHours())+pad2(d.getMinutes())+pad2(d.getSeconds())+".json";}
+$("bexp").addEventListener("click",function(){
+if(!REG.length){bnote("登録済みの馬がないため書き出せません。",true);return;}
+try{var fn=bkName();var json=backupJSON();
+var chk=validateBackup(json);
+if(!chk.ok){bnote("書き出せません："+chk.reason+"登録済み一覧・入力は変更していません。",true);return;}
+var blob=new Blob([json],{type:"application/json;charset=utf-8"});
+if(typeof blob.size!=="number"||blob.size>BK_MAX_BYTES){bnote("書き出せません：バックアップのファイルサイズが保護上限（5MB）を超えています。登録済み一覧・入力は変更していません。",true);return;}
+var url=URL.createObjectURL(blob);
+var a=document.createElement("a");a.href=url;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);
+setTimeout(function(){URL.revokeObjectURL(url)},10000);
+bnote("書き出しを開始しました（ファイル名："+fn+"）。保存の完了はこのアプリから確認できません。ファイルが取得できたことを確認して、保管してください。",false);
+}catch(e){bnote("書き出しを開始できませんでした。",true);}});
+$("bimp").addEventListener("click",function(){
+clearImport();var r=blockReason();if(r){bnote(r,true);return;}
+$("bnote").style.display="none";$("bfile").click();});
+$("bfile").addEventListener("change",function(){
+var inp=$("bfile");var f=inp.files&&inp.files[0];inp.value="";
+if(!f)return;
+clearImport();
+var r=blockReason();if(r){bnote(r,true);return;}
+if(f.size>BK_MAX_BYTES){bnote("ファイルサイズが保護上限（5MB）を超えています。既存の一覧・入力は変更していません。",true);return;}
+var rd=new FileReader();
+rd.onerror=function(){bnote("ファイルを読み取れませんでした。既存の一覧・入力は変更していません。",true);};
+rd.onload=function(){
+var r2=blockReason();if(r2){bnote(r2,true);return;}
+var v=validateBackup(rd.result);
+if(!v.ok){bnote(v.reason+"既存の一覧・入力は変更していません。",true);return;}
+pendingImport=v;showImportPreview(v);};
+rd.readAsText(f,"UTF-8");});
+function showImportPreview(v){
+var el=$("imp");el.textContent="";
+$("bnote").style.display="none";
+var h=document.createElement("p");h.style.cssText="font-size:14px;font-weight:500;margin:0 0 6px;";h.textContent="読み込み確認：全"+v.records.length+"件";el.appendChild(h);
+v.records.forEach(function(r,i){var p=document.createElement("p");p.style.cssText="font-size:14px;margin:0 0 2px;word-break:break-word;";p.textContent=(i+1)+". "+r.title;el.appendChild(p);});
+var n=document.createElement("p");n.style.cssText="font-size:13px;color:var(--text-secondary);margin:8px 0;";n.textContent="「復元する」を押すと、全件をまとめて一覧に復元します（未保存の状態になります）。";el.appendChild(n);
+var g=document.createElement("div");g.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;";
+var c=document.createElement("button");c.style.cssText="min-height:44px;font-size:15px;";c.textContent="キャンセル";c.addEventListener("click",clearImport);
+var o=document.createElement("button");o.style.cssText="min-height:44px;font-size:15px;";o.textContent="復元する";o.addEventListener("click",doRestore);
+g.appendChild(c);g.appendChild(o);el.appendChild(g);el.style.display="block";}
+function doRestore(){
+var v=pendingImport;var r=blockReason();clearImport();
+if(!v)return;
+if(r){bnote(r+"復元は行っていません。",true);return;}
+REG=v.records.slice();seq=Math.max(seq,v.nextSeq);
+showList(true,"バックアップから"+REG.length+"件を復元しました（未保存）");}
+</script>
+</body>
+</html>
