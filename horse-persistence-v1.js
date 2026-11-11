@@ -354,7 +354,7 @@ function connect(options){
   var controller=createController({repository:repository,capturePayload:host.capturePayload,
     canApplyLoaded:host.canApplyLoaded,applyLoaded:host.applyLoaded,onState:options.onState});
   var observer=createObserver({controller:controller,getRegistry:host.getRegistry,getEditId:host.getEditId,
-    schedule:options.schedule||function(fn){Promise.resolve().then(fn);},onError:options.onError});
+    schedule:options.schedule||function(fn){setTimeout(fn,0);},onError:options.onError});
   return Object.freeze({controller:controller,observer:observer,dispose:function(){observer.dispose();controller.dispose();}});
 }
 var api=Object.freeze({createController:createController,createObserver:createObserver,connect:connect});
@@ -490,6 +490,7 @@ function create(options){
     catch(e){if(typeof options.onError==='function'){try{options.onError(e);}catch(_){}}}
     finally{retryBusy=false;render();}
   }
+  button.addEventListener('click',retryClick);
   function update(state){if(disposed)return;current=Object.assign({},state);render();}
   function dispose(){
     if(disposed)return;disposed=true;button.removeEventListener('click',retryClick);
