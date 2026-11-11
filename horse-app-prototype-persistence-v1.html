@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>所有馬管理 保存機能 比較試作v1</title><body><p id="status">保存機能の比較試作を読み込み中です。</p>
+<script>
+(async function(){try{
+var r=await fetch('./horse-app-prototype-backup-v2.html',{cache:'no-store'});
+if(!r.ok)throw Error('元HTMLの取得に失敗しました');
+var b=await r.arrayBuffer();
+var h=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b))).map(function(x){return x.toString(16).padStart(2,'0');}).join('');
+if(h!=='7c55057a4a3d56ae5de867e340d98e482fc0811d27c9db057c591266fa08fe05')throw Error('元HTMLが確認済み版と異なります。安全のため起動しません');
+var t=new TextDecoder('utf-8').decode(b);
+if(t.split('<body>').length!==2||t.split('</body>').length!==2||t.split('<title>所有馬管理アプリ 最小試作</title>').length!==2)throw Error('元HTMLの構成を確認できません');
+t=t.replace('<title>所有馬管理アプリ 最小試作</title>','<title>所有馬管理 保存機能 比較試作v1</title>');
+t=t.replace('<body>','<body><fieldset id="owned-horse-persistence-preload-gate-v1" disabled style="border:0;margin:0;padding:0;min-width:0;">');
+t=t.replace('</body>','</fieldset>'+"<script>(function(){var g={failed:false};g.listener=function(){if(g.failed)return;g.failed=true;var d=document,p=d.getElementById('owned-horse-persistence-setup-error-v1');if(!p){p=d.createElement('p');p.id='owned-horse-persistence-setup-error-v1';d.body.insertBefore(p,d.body.firstChild);}p.textContent='依存ファイルの読み込みまたは実行に失敗しました。保存機能の試作は起動しません。';var f=d.getElementById('owned-horse-persistence-preload-gate-v1');if(f)f.disabled=false;};window.__ownedHorsePersistenceDependencyGuardV1=g;window.addEventListener('error',g.listener,true);})();<\/script><script src=\"./horse-edit-v1.js\"><\/script><script src=\"./horse-memory-top-v1.js\"><\/script><script src=\"./horse-measure-comments-v1.js\"><\/script><script src=\"./horse-stamina-comment-v1.js\"><\/script><script src=\"./horse-speed-comment-v1.js\"><\/script><script src=\"./horse-overseas-comment-v1.js\"><\/script><script src=\"./horse-race-comment-v1.js\"><\/script><script src=\"./horse-oka-comment-v1.js\"><\/script><script src=\"./horse-compact-fields-v1.js\"><\/script><script src=\"./horse-initial-estimate-draft-v1.js\"><\/script><script src=\"./horse-persistence-v1.js\" data-owned-horse-persistence=\"preview-v1\"><\/script>"+ '</body>');
+document.open();document.write(t);document.close();
+}catch(e){var s=document.getElementById('status');if(s)s.textContent='起動できません：'+e.message;}})();
+</script></body></html>
