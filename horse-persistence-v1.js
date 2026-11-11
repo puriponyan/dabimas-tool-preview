@@ -490,7 +490,6 @@ function create(options){
     catch(e){if(typeof options.onError==='function'){try{options.onError(e);}catch(_){}}}
     finally{retryBusy=false;render();}
   }
-  button.addEventListener('click',retryClick);
   function update(state){if(disposed)return;current=Object.assign({},state);render();}
   function dispose(){
     if(disposed)return;disposed=true;button.removeEventListener('click',retryClick);
