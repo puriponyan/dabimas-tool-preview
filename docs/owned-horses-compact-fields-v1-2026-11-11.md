@@ -1,0 +1,39 @@
+# 所有馬管理：未入力項目省略 比較試作v1
+
+作成：2026-11-11 JST。公開 puriponyan/dabimas-tool-preview / main。所有馬管理のみ。
+
+## 対象と優先記録
+
+本書は未入力項目省略の仕様・試験・残件の正本。入厩前推定の記録は docs/owned-horses-initial-estimate-draft-v1-2026-11-10.md を引き続き優先。本変更に推定の統合は含めない。
+
+新規3件：horse-app-prototype-compact-fields-v1.html、horse-compact-fields-v1.js、本書。現行入口 horse-app-prototype-oka-comment-v1.html、元HTML、既存JS、保存形式は変更しない。既存URLの差し替え・登録馬の移行・自動同期は行わない。
+
+公開予定の比較URL： https://puriponyan.github.io/dabimas-tool-preview/horse-app-prototype-compact-fields-v1.html
+
+## 仕様
+
+候補作成前は入力欄を従来どおり表示。候補作成後と登録馬の編集時は、値・入力原文値・手動操作・注意のない欄を省略。「未入力項目を表示／未入力項目を省略」で切り替える。手動空欄の入力欄は保持し、入力中に突然消さない。0歳を未入力扱いにしない。空の区分見出しも省略する。
+
+登録前プレビューは値あり・未解決の不正値や矛盾を表示し、注意のない空欄を省略。手動空欄はプレビューでは省略。距離適性は片側だけでも表示し、原文の距離注意が未解決なら残す。上下限とも手動処理済みの原文注意は履歴として既存の注意表示に残し、空の距離行自体は省略する。
+
+原文貼付欄・馬名・入力画面の上部メモリ欄・注意・原文閲覧・操作ボタンを省略対象にしない。プレビューのメモリは初期の不明のみなら省略するが、手動選択、不正・矛盾、成長情報があれば残す。テキストボックスの寸法は変更しない。登録後の一覧と詳細は対象外。
+
+表示専用属性 data-compact-hidden-v1 と、その属性だけに適用するCSSで省略。render/renderConfirm/resetAllをラップし、状態・原文・登録データの書換えは行わない。構造確認に失敗したら表示制御の接続を見送る。既存の解析対応表・除外表・計算・snapshot/backupJSON/validateBackupは変更しない。
+
+## 依存関係
+
+単体HTMLではない。元HTML horse-app-prototype-backup-v2.html のSHA-256 7c55057a4a3d56ae5de867e340d98e482fc0811d27c9db057c591266fa08fe05 を検証する。既存入口と同順で horse-edit-v1.js → horse-memory-top-v1.js → horse-measure-comments-v1.js → horse-stamina-comment-v1.js → horse-speed-comment-v1.js → horse-overseas-comment-v1.js → horse-race-comment-v1.js → horse-oka-comment-v1.js を読み込み、末尾に horse-compact-fields-v1.js を追加。推定JSは含めない。
+
+## AI側確認（公開前）
+
+今回GitHub mainから取得：現行入口 SHA 44515ff16b5e097ac1cb10bb00845ad07d5fe7c8、メモリ配置JS SHA 450f0ac52e46d897306e5ed8dbef91f5aefe1daa、編集JS SHA c8dd21c6ee12987c23b5f1e9f846740218681a84、桜花賞JS SHA e32471af53aec70ba0afa5d9456b097a8c54b978、推定記録 SHA 2200d64cbb0fb726b9c397567624fd34d9ecdda0。元HTMLの構造はProject Filesの同名ファイルと会話内の取得抜粋を参照。現行GitHub元HTML全文の再取得・Project Fileとのハッシュ一致は今回未確認。他の既存JS全件の再取得・全体実行も未実施。
+
+Node.jsで新規JSと比較HTML内JSの構文確認。自作簡易DOMの接続試験42件合格：候補作成前の表示、候補作成後の空欄と見出し省略、再表示・再省略、手動空欄、0歳、矛盾・不正値、距離注意と手動解決、メモリ不明の手動選択、戻り時相当の再描画、二重読込、リセット、原文・注意・原文閲覧・上部メモリ・詳細の非対象、代替状態と仮登録2件の不変、ラップ元戻り値の維持を確認。
+
+試験環境は独自の最小DOM。render/renderConfirm/resetAllと登録状態は代替で、元HTML全体・既存JS全体を実行していない。CSSの画面描画、ブラウザイベント順序、実アプリの登録・JSON書出し・復元・編集キャンセルの不変は未検証。前案の判定関数21件合格は旧案の履歴であり、新案の合格件数に加算しない。実馬データは不使用。
+
+## 残件と次の確認
+
+GitHub保存後に新規3件を読取確認する。GitHub保存、Pages反映、Safari起動は別判定。Safari実機確認は未実施。
+
+次は別タブの比較ページで仮データを使い、候補作成後の省略、再表示から補完、手動空欄、確認と戻り、上部メモリと注意保持に絞って確認する。既存の未保存タブを再読込・閉鎖しない。実馬や既存バックアップを混ぜず、不要な書出し・再添付・削除・移動は求めない。保存影響の実アプリ確認は残件として区別し、簡易DOMの状態比較をJSON不変の証明にしない。
