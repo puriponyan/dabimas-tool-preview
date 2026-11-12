@@ -1,0 +1,193 @@
+name: Owned horses JSON rejection v1
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reject-inconsistent-json:
+    if: github.repository == 'puriponyan/dabimas-tool-preview' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch fixed public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin https://github.com/puriponyan/dabimas-tool-preview.git
+          git -C source fetch --depth=1 origin e65621a55cc35b2a73a4cdd16135fd1a1bf4a7b8
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = e65621a55cc35b2a73a4cdd16135fd1a1bf4a7b8
+      - name: Install isolated test dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/owned-horses-venv"
+          "$RUNNER_TEMP/owned-horses-venv/bin/python" -m pip install --disable-pip-version-check playwright==1.51.0
+          "$RUNNER_TEMP/owned-horses-venv/bin/python" -m playwright install --with-deps chromium
+      - name: Verify original files and test rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/owned-horses-venv/bin/python" - <<'PY'
+          import asyncio
+          import copy
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          from playwright.async_api import async_playwright
+          
+          ROOT = Path('source')
+          EXPECTED = {
+           'horse-app-prototype-oka-comment-v1.html': '4f19ff07fb22f4274c2c430f7b714fbb4e92b220',
+           'horse-app-prototype-backup-v2.html': '0ca3a216ea329caed4942919675770402c1505dc',
+           'horse-edit-v1.js': 'c8dd21c6ee12987c23b5f1e9f846740218681a84',
+           'horse-memory-top-v1.js': '450f0ac52e46d897306e5ed8dbef91f5aefe1daa',
+           'horse-measure-comments-v1.js': 'f28bde985106380e9d54930da0fa0080bd6c7f5b',
+           'horse-stamina-comment-v1.js': '8959e1c6c332222dcc7b1702032f0b426983af7f',
+           'horse-speed-comment-v1.js': '78ab580fa77aee78f35860de2f7c3880f3fa66b6',
+           'horse-overseas-comment-v1.js': 'f3998e4436e83df8dfa7b25bdb9afc15e63dbe7b',
+           'horse-race-comment-v1.js': '93c17d2fda354db6e9a8f89a44fef38d2096e424',
+           'horse-oka-comment-v1.js': 'e32471af53aec70ba0afa5d9456b097a8c54b978',
+           'horse-compact-fields-v1.js': 'c9d8a1d0380768443475cb6cdc4fd13ab8d46a6e',
+           'horse-initial-estimate-draft-v1.js': 'f5fd6b93c22671b0c62ea86ec8447f890bcc1986',
+           'horse-persistence-stop-notice-v1.js': 'a424cf3dd5b8029156e91f514a7f332373bf855b',
+          }
+          SHA256 = {
+           'horse-app-prototype-backup-v2.html': '7c55057a4a3d56ae5de867e340d98e482fc0811d27c9db057c591266fa08fe05',
+           'horse-persistence-stop-notice-v1.js': '17625b8e0a3a0c777e883d4a314ec35bc6122d631822ee3cc7fb5bb8c55dfff6',
+          }
+          CHECKS = []
+          ISSUES = []
+          SOURCE = {}
+          
+          def check(name, value):
+              CHECKS.append({'check': name, 'pass': bool(value)})
+              if not value:
+                  raise AssertionError(name)
+          
+          def verify():
+              for name, expected in EXPECTED.items():
+                  raw = (ROOT / name).read_bytes()
+                  blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+                  if blob != expected:
+                      raise RuntimeError('原本blob不一致: ' + name)
+                  if name in SHA256 and hashlib.sha256(raw).hexdigest() != SHA256[name]:
+                      raise RuntimeError('原本SHA-256不一致: ' + name)
+                  SOURCE[name] = raw
+          
+          async def snapshot(page):
+              return await page.evaluate("""() => ({records:JSON.parse(JSON.stringify(REG)),seq:seq,
+                editor:editorState(),editId:editId,text:document.getElementById('txt').value,
+                dirty:dirty(),save:ownedHorsePersistencePreviewV1.boot().getState()})""")
+          
+          async def database(page):
+              return await page.evaluate("""() => new Promise((resolve,reject)=>{
+                const q=indexedDB.open('dabimas-owned-horses-v1',1);
+                q.onerror=()=>reject(String(q.error));
+                q.onsuccess=()=>{const db=q.result,tx=db.transaction('snapshots','readonly');
+                  const r=tx.objectStore('snapshots').get('registered-horses');let value;
+                  r.onsuccess=()=>{value=r.result};
+                  tx.oncomplete=()=>{db.close();resolve(value===undefined?null:value)};
+                  tx.onabort=()=>{db.close();reject(String(tx.error))};
+                };
+              })""")
+          
+          async def select_file(page, name, data):
+              async with page.expect_file_chooser() as event:
+                  await page.locator('#bimp').click()
+              chooser = await event.value
+              await chooser.set_files({'name': name, 'mimeType': 'application/json',
+                  'buffer': json.dumps(data, ensure_ascii=False).encode('utf-8')})
+          
+          async def run():
+              verify()
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True)
+                  source_context = await browser.new_context(service_workers='block')
+                  target_context = await browser.new_context(service_workers='block')
+                  async def route(request):
+                      u = urlsplit(request.request.url)
+                      name = u.path.lstrip('/')
+                      if u.scheme != 'https' or u.netloc != 'owned-horses.test' or name not in SOURCE:
+                          ISSUES.append('unknown-url:' + request.request.url)
+                          await request.abort()
+                          return
+                      await request.fulfill(status=200, body=SOURCE[name],
+                          content_type='text/html; charset=utf-8' if name.endswith('.html') else 'application/javascript; charset=utf-8')
+                  for context in (source_context, target_context):
+                      await context.route('**/*', route)
+                  async def open_page(context):
+                      page = await context.new_page()
+                      page.set_default_timeout(10000)
+                      page.on('pageerror', lambda e: ISSUES.append('pageerror:' + str(e)))
+                      page.on('console', lambda m: ISSUES.append('console:' + m.text) if m.type in ('warning', 'error') else None)
+                      await page.goto('https://owned-horses.test/horse-app-prototype-oka-comment-v1.html')
+                      await page.wait_for_function('window.ownedHorsePersistencePreviewV1 && document.getElementById("owned-horse-persistence-ui-draft-v1")')
+                      ready = await page.evaluate('ownedHorsePersistencePreviewV1.boot().ready')
+                      check('原本起動', ready.get('ok') is True)
+                      return page
+                  try:
+                      source = await open_page(source_context)
+                      text = '馬名：拒否確認用仮馬A\n性別：牝\nメモリ：4\n解析コメント：\n将来はいくつかのタイトルも狙えるでしょうね。'
+                      await source.locator('#txt').fill(text)
+                      await source.locator('#mk').click()
+                      await source.locator('#cb select').select_option('')
+                      await source.locator('#go').click()
+                      await source.locator('#reg').click()
+                      await source.wait_for_function("() => {const s=ownedHorsePersistencePreviewV1.boot().getState();return s.phase==='saved'&&s.latestRequest===s.confirmedRequest}")
+                      normal = json.loads(await source.evaluate('backupJSON()'))
+                      source_before = await snapshot(source)
+                      source_db = await database(source)
+                      check('正常fixture前提', normal['version'] == 2 and normal['count'] == 1 and normal['records'][0]['editor']['f']['sex']['v'] == '' and normal['records'][0]['editor']['f']['sex']['u'] is True)
+                      normal_before = copy.deepcopy(normal)
+                      bad = copy.deepcopy(normal)
+                      bad['records'][0]['editor']['f']['sex']['v'] = '牡'
+                      bad['records'][0]['editor']['f']['sex']['raw'] = '牡'
+                      check('正常fixture無変更', normal == normal_before)
+                      target = await open_page(target_context)
+                      await target.locator('#toList').click()
+                      before = await snapshot(target)
+                      db_before = await database(target)
+                      check('復元先空・入力なし', before['records'] == [] and before['seq'] == 0 and before['dirty'] is False and before['save']['phase'] == 'empty' and db_before is None)
+                      await select_file(target, 'inconsistent-test-only.json', bad)
+                      await target.locator('#bnote').wait_for(state='visible')
+                      message = await target.locator('#bnote').inner_text()
+                      check('表示とeditorの不整合で拒否', '記録1：表示内容と編集用データが一致しません。' in message)
+                      check('復元確認なし', not await target.locator('#imp').is_visible())
+                      check('pendingImportなし', await target.evaluate('pendingImport === null'))
+                      check('REG・採番・入力・editor・保存状態不変', await snapshot(target) == before)
+                      check('DB記録不変', await database(target) == db_before)
+                      check('保存要求0', (await snapshot(target))['save']['latestRequest'] == 0)
+                      await select_file(target, 'normal-synthetic.json', normal)
+                      await target.locator('#imp').wait_for(state='visible')
+                      preview = await target.locator('#imp').inner_text()
+                      check('正常JSONを再選択可能', '読み込み確認：全1件' in preview and '拒否確認用仮馬A' in preview)
+                      check('正常確認でも未復元', await snapshot(target) == before and await database(target) == db_before)
+                      check('書出元REGとDB不変', await snapshot(source) == source_before and await database(source) == source_db)
+                      check('実行時異常なし', not ISSUES)
+                      return browser.version
+                  finally:
+                      await source_context.close()
+                      await target_context.close()
+                      await browser.close()
+          
+          error = None
+          version = None
+          try:
+              version = asyncio.run(run())
+          except Exception as e:
+              error = type(e).__name__ + ': ' + str(e)
+          report = {'status': 'failed' if error else 'passed', 'error': error,
+              'sourceCommit': 'e65621a55cc35b2a73a4cdd16135fd1a1bf4a7b8',
+              'browser': version, 'checks': CHECKS, 'issues': ISSUES,
+              'scope': '空の復元先・不整合JSON1例。既存登録馬保持、Safari、全異常系の証明ではない。'}
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          with summary.open('a', encoding='utf-8') as f:
+              f.write('# 所有馬JSON不整合拒否試験\n\n```json\n' + json.dumps(report, ensure_ascii=False, indent=2) + '\n```\n')
+          if error:
+              raise SystemExit(1)
+          PY
