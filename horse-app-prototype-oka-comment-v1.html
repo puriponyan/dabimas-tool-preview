@@ -13,7 +13,7 @@ async function verified(path,expected){
 function script(code){return '<script>'+code.replace(/<\/script/gi,'<\\/script')+'<\/script>';}
 try{
  var base=await verified('./horse-app-prototype-backup-v2.html','7c55057a4a3d56ae5de867e340d98e482fc0811d27c9db057c591266fa08fe05');
- var persistence=await verified('./horse-persistence-v1.js','8419114e3fbc4123a09bdf2e9f3765f552ff598953f19e297d63a010349b4e68');
+ var persistence=await verified('./horse-persistence-stop-notice-v1.js','17625b8e0a3a0c777e883d4a314ec35bc6122d631822ee3cc7fb5bb8c55dfff6');
  if(base.split('<body>').length!==2||base.split('</body>').length!==2||base.split('<title>所有馬管理アプリ 最小試作</title>').length!==2)fail('元HTMLの構成を確認できません');
  var banner='<section style="padding:12px;border:1px solid #888;margin-bottom:12px;"><h1 style="font-size:18px;">所有馬管理・端末内保存v1</h1><p>保存対象は登録・変更反映・復元で確定した一覧です。未登録入力・未確定編集は保存されません。</p><p>旧ページ・比較用ページから自動移行・同期しません。初回は保存データなし、一覧0件、入力途中なしを確認してから、取得確認済みのJSONを読み込んでください。</p><p>保存領域：dabimas-owned-horses-v1。起動するとこの領域を開き、未作成なら作成します。既存の比較用・隔離用DBは使いません。</p></section>';
  var files=["horse-edit-v1.js", "horse-memory-top-v1.js", "horse-measure-comments-v1.js", "horse-stamina-comment-v1.js", "horse-speed-comment-v1.js", "horse-overseas-comment-v1.js", "horse-race-comment-v1.js", "horse-oka-comment-v1.js", "horse-compact-fields-v1.js", "horse-initial-estimate-draft-v1.js"];
