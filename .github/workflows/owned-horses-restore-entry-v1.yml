@@ -1,0 +1,131 @@
+name: Owned horses restore entry v1
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  restore-entry:
+    if: github.repository == 'puriponyan/dabimas-tool-preview' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch fixed public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin https://github.com/puriponyan/dabimas-tool-preview.git
+          git -C source fetch --depth=1 origin eced324a857964be1788ce73f157ab998a64e619
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = eced324a857964be1788ce73f157ab998a64e619
+      - name: Install isolated test dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/restore-venv"
+          "$RUNNER_TEMP/restore-venv/bin/python" -m pip install --disable-pip-version-check playwright==1.51.0
+          "$RUNNER_TEMP/restore-venv/bin/python" -m playwright install --with-deps chromium
+      - name: Verify original files and test restore entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/restore-venv/bin/python" - <<'PY'
+          import asyncio, hashlib, json, os
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          from playwright.async_api import async_playwright
+          EXPECTED = {'horse-app-prototype-restore-check-v1.html': '58a3a33603a737a1b6b9fe6f2f2aad2c70a64c38', 'horse-app-prototype-oka-comment-v1.html': '4f19ff07fb22f4274c2c430f7b714fbb4e92b220', 'horse-app-prototype-backup-v2.html': '0ca3a216ea329caed4942919675770402c1505dc', 'horse-edit-v1.js': 'c8dd21c6ee12987c23b5f1e9f846740218681a84', 'horse-memory-top-v1.js': '450f0ac52e46d897306e5ed8dbef91f5aefe1daa', 'horse-measure-comments-v1.js': 'f28bde985106380e9d54930da0fa0080bd6c7f5b', 'horse-stamina-comment-v1.js': '8959e1c6c332222dcc7b1702032f0b426983af7f', 'horse-speed-comment-v1.js': '78ab580fa77aee78f35860de2f7c3880f3fa66b6', 'horse-overseas-comment-v1.js': 'f3998e4436e83df8dfa7b25bdb9afc15e63dbe7b', 'horse-race-comment-v1.js': '93c17d2fda354db6e9a8f89a44fef38d2096e424', 'horse-oka-comment-v1.js': 'e32471af53aec70ba0afa5d9456b097a8c54b978', 'horse-compact-fields-v1.js': 'c9d8a1d0380768443475cb6cdc4fd13ab8d46a6e', 'horse-initial-estimate-draft-v1.js': 'f5fd6b93c22671b0c62ea86ec8447f890bcc1986', 'horse-persistence-stop-notice-v1.js': 'a424cf3dd5b8029156e91f514a7f332373bf855b'}
+          SOURCE = {}
+          CHECKS = []
+          ISSUES = []
+          DB = 'dabimas-owned-horses-restore-check-v1'
+          def check(name, value):
+              CHECKS.append({'check':name,'pass':bool(value)})
+              if not value: raise AssertionError(name)
+          for name, blob in EXPECTED.items():
+              raw = (Path('source') / name).read_bytes()
+              check('blob:'+name, hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==blob)
+              SOURCE[name] = raw
+          for name, digest in {'horse-app-prototype-backup-v2.html':'7c55057a4a3d56ae5de867e340d98e482fc0811d27c9db057c591266fa08fe05','horse-persistence-stop-notice-v1.js':'17625b8e0a3a0c777e883d4a314ec35bc6122d631822ee3cc7fb5bb8c55dfff6'}.items():
+              check('sha256:'+name, hashlib.sha256(SOURCE[name]).hexdigest()==digest)
+          async def snap(page):
+              return await page.evaluate('() => ({records:JSON.parse(JSON.stringify(REG)),seq:seq})')
+          async def run():
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True)
+                  contexts = [await browser.new_context(service_workers='block') for _ in range(2)]
+                  async def route(r):
+                      u = urlsplit(r.request.url)
+                      name = u.path.lstrip('/')
+                      if u.scheme!='https' or u.netloc!='restore.test' or name not in SOURCE:
+                          ISSUES.append('unknown-url:'+r.request.url)
+                          await r.abort()
+                          return
+                      await r.fulfill(body=SOURCE[name],content_type='text/html; charset=utf-8' if name.endswith('.html') else 'application/javascript; charset=utf-8')
+                  for c in contexts: await c.route('**/*',route)
+                  async def open_page(c, name):
+                      page = await c.new_page()
+                      page.set_default_timeout(15000)
+                      await page.add_init_script("window.dbOpens=[];const nativeOpen=indexedDB.open.bind(indexedDB);indexedDB.open=function(name,version){dbOpens.push([name,version]);return nativeOpen(name,version);};")
+                      page.on('pageerror',lambda e:ISSUES.append(str(e)))
+                      page.on('console',lambda m:ISSUES.append(m.text) if m.type in ('warning','error') else None)
+                      await page.goto('https://restore.test/'+name)
+                      await page.wait_for_function('window.ownedHorsePersistencePreviewV1')
+                      ready = await page.evaluate('ownedHorsePersistencePreviewV1.boot().ready')
+                      check('boot:'+name,ready.get('ok') is True)
+                      return page
+                  try:
+                      source = await open_page(contexts[0],'horse-app-prototype-oka-comment-v1.html')
+                      text = '馬名：復元経路仮馬A\n性別：牝\nメモリ：4\n解析コメント：\n将来はいくつかのタイトルも狙えるでしょうね。'
+                      await source.locator('#txt').fill(text)
+                      await source.locator('#mk').click()
+                      await source.locator('#cb select').select_option('')
+                      await source.locator('#go').click()
+                      await source.locator('#reg').click()
+                      await source.wait_for_function("ownedHorsePersistencePreviewV1.boot().getState().phase==='saved'")
+                      fixture = await source.evaluate('backupJSON()')
+                      baseline = await snap(source)
+                      check('fixture hand-cleared sex',await source.evaluate("REG[0].editor.f.sex.u && REG[0].editor.f.sex.v===''") )
+                      target = await open_page(contexts[1],'horse-app-prototype-restore-check-v1.html')
+                      await target.locator('#toList').click()
+                      check('target empty',await target.evaluate("REG.length===0 && !dirty() && ownedHorsePersistencePreviewV1.boot().getState().phase==='empty'"))
+                      before = await snap(target)
+                      async with target.expect_file_chooser() as event: await target.locator('#bimp').click()
+                      await (await event.value).set_files({'name':'synthetic-restore-v2.json','mimeType':'application/json','buffer':fixture.encode()})
+                      await target.locator('#imp').wait_for(state='visible')
+                      check('preview without restore',await snap(target)==before)
+                      check('preview name and count','読み込み確認：全1件' in await target.locator('#imp').inner_text() and '復元経路仮馬A' in await target.locator('#imp').inner_text())
+                      await target.locator('#imp button').filter(has_text='復元する').click()
+                      await target.wait_for_function("() => {const s=ownedHorsePersistencePreviewV1.boot().getState();return s.phase==='saved'&&s.latestRequest===s.confirmedRequest}")
+                      check('restored records and sequence',await snap(target)==baseline)
+                      raw = await target.evaluate("""name=>new Promise((resolve,reject)=>{const q=indexedDB.open(name,1);q.onerror=()=>reject(String(q.error));q.onsuccess=()=>{const d=q.result,t=d.transaction('snapshots','readonly'),r=t.objectStore('snapshots').get('registered-horses');let v;r.onsuccess=()=>v=r.result;t.oncomplete=()=>{d.close();resolve(v)};t.onabort=()=>{d.close();reject(String(t.error))};};})""",DB)
+                      check('dedicated payload',json.loads(raw['payload'])['records']==json.loads(fixture)['records'])
+                      check('only dedicated DB opened',await target.evaluate('dbOpens.every(x=>x[0]==="dabimas-owned-horses-restore-check-v1" && x[1]===1)'))
+                      before = await snap(target)
+                      await target.locator('#bimp').click()
+                      check('second import rejected',not await target.locator('#imp').is_visible() and await snap(target)==before)
+                      await target.reload()
+                      await target.wait_for_function('window.ownedHorsePersistencePreviewV1')
+                      ready = await target.evaluate('ownedHorsePersistencePreviewV1.boot().ready')
+                      check('reload success',ready.get('ok') is True)
+                      check('reload records and sequence',await snap(target)==baseline)
+                      check('reload only dedicated DB',await target.evaluate('dbOpens.length>0 && dbOpens.every(x=>x[0]==="dabimas-owned-horses-restore-check-v1")'))
+                      await target.locator('#lst button').first.click()
+                      await target.locator('#dt button').filter(has_text='この馬を編集').click()
+                      check('restored editor and original',await target.evaluate('JSON.stringify(editorState())===JSON.stringify(REG[0].editor) && document.getElementById("txt").value===REG[0].text'))
+                      check('source unchanged',await snap(source)==baseline)
+                      check('no runtime errors',not ISSUES)
+                      return browser.version
+                  finally:
+                      for c in contexts: await c.close()
+                      await browser.close()
+          error = None
+          version = None
+          try: version = asyncio.run(run())
+          except Exception as e: error = type(e).__name__+': '+str(e)
+          report = {'status':'failed' if error else 'passed','error':error,'sourceCommit':'eced324a857964be1788ce73f157ab998a64e619','browser':version,'checks':CHECKS,'issues':ISSUES,'scope':'原本構成・仮データ1件・隔離Chromium。Safari・混在JSON・実馬・全異常系の保証ではない。'}
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a',encoding='utf-8') as f:
+              f.write('# 復元確認入口 v1\n\n```json\n'+json.dumps(report,ensure_ascii=False,indent=2)+'\n```\n')
+          if error: raise SystemExit(1)
+          PY
