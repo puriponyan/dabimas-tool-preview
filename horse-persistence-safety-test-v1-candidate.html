@@ -1,0 +1,127 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>所有馬 保存安全性 接続試験v1・候補</title><style>body{font-family:-apple-system,sans-serif;line-height:1.6;margin:16px;max-width:850px}button{font-size:17px;min-height:48px;padding:8px 16px}section{border:1px solid #999;padding:12px;margin:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}.warn{border:2px solid #a44;padding:12px}</style><h1>所有馬 保存安全性 接続試験v1</h1><p class="warn">開発用候補。通常アプリではありません。実際の牧場データ・既存JSONは使いません。A・B・Cの実行で新しい試験専用DBを計7個作成します。既存DBの削除・初期化はしません。試験後のDBも削除しません。</p><p>実保存JSの保存コア・制御・状態文言を使用します。検証関数・登録一覧・下書きは試験モデルです。元HTML・既存10本のJS・正式アプリの入力欄・状態UI全体は実行しません。モデル保持を実アプリの入力保持の証明にしません。</p><p>同じ公開ディレクトリの保存JSをSHA-256照合してから使用します。ローカルHTML起動は試験方法に含めません。公開とiPhone確認は未実施です。</p><p id="status" role="status">保存JSを確認中。試験ボタンは待機しています。</p><section><h2>A：書込開始失敗・再保存／書込後の読取失敗</h2><button id="runA" disabled>Aを実行</button><p id="resultA" role="status">未実行</p></section><section><h2>B：2接続の競合／連続要求と新要求失敗</h2><button id="runB" disabled>Bを実行</button><p id="resultB" role="status">未実行</p></section><section><h2>C：起動時の読取失敗／破損／未対応形式</h2><button id="runC" disabled>Cを実行</button><p id="resultC" role="status">未実行</p></section><h2>使用した試験DB名</h2><pre id="dbs">まだありません</pre><h2>判定ログ</h2><pre id="log"></pre><p>不合格・中断時は追加試験を止めます。既存タブを閉じたり保存JSを変更したりして仕切り直さないでください。途中停止時、個別のIndexedDB処理が未完了の可能性があるため、タイムアウトだけで成功・無変更と判定しません。再起動して再実行すると専用DBが増えます。</p><script>(function(root){
+'use strict';
+const PREFIX='dabimas-owned-horses-safety-test-v1-';
+const EXPECTED='8419114e3fbc4123a09bdf2e9f3765f552ff598953f19e297d63a010349b4e68';
+function assert(ok,msg){if(!ok)throw new Error(msg);}
+function clone(x){return JSON.parse(JSON.stringify(x));}
+function equal(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+function factory(native,name,control){
+ assert(name.startsWith(PREFIX)&&name.length>PREFIX.length,'専用DB名が必要です');
+ return Object.freeze({open:function(n,v){
+  assert(n===name&&v===1,'専用DB以外の接続を拒否しました');
+  const req=native.open(n,v),out={};let wrapped=null;
+  Object.defineProperty(out,'result',{get:function(){
+   if(wrapped)return wrapped;const db=req.result;
+   wrapped={get objectStoreNames(){return db.objectStoreNames;},createObjectStore:function(s){return db.createObjectStore(s);},close:function(){db.close();},transaction:function(s,m){
+    if(m==='readwrite'&&control.write){control.write--;throw new Error('TEST_INJECTED_WRITE_FAILURE');}
+    if(m==='readonly'&&control.read){control.read--;throw new Error('TEST_INJECTED_READ_FAILURE');}
+    return db.transaction(s,m);
+   }};
+   Object.defineProperty(wrapped,'onversionchange',{get:function(){return db.onversionchange;},set:function(f){db.onversionchange=f;}});return wrapped;
+  }});
+  Object.defineProperty(out,'transaction',{get:function(){return req.transaction;}});
+  Object.defineProperty(out,'error',{get:function(){return req.error;}});
+  ['upgradeneeded','blocked','error','success'].forEach(function(k){req['on'+k]=function(e){if(typeof out['on'+k]==='function')out['on'+k](e);};});return out;
+ }});
+}
+function validate(text){
+ let d;try{d=JSON.parse(text);}catch(_){return {ok:false,reason:'試験payloadのJSON不正'};}
+ if(!d||d.kind!=='horse-app-backup'||d.version!==2||!Array.isArray(d.records)||d.count!==d.records.length||!Number.isSafeInteger(d.nextSeq)||d.nextSeq<0)return {ok:false,reason:'試験payload不正'};
+ if(!d.records.every(function(r){return r&&typeof r.id==='string'&&typeof r.name==='string'&&typeof r.text==='string'&&Number.isInteger(r.memory);}))return {ok:false,reason:'試験レコード不正'};
+ return {ok:true,records:clone(d.records),nextSeq:d.nextSeq};
+}
+function payload(memory){return JSON.stringify({kind:'horse-app-backup',version:2,count:2,nextSeq:2,records:[{id:'test-1',name:'試験馬A',memory:1,text:'開発用仮データA'},{id:'test-2',name:'試験馬B',memory:memory,text:'開発用仮データB'}]});}
+async function nativeDB(native,name){
+ assert(name.startsWith(PREFIX),'専用DB以外は拒否');
+ return new Promise(function(resolve,reject){const r=native.open(name,1);r.onupgradeneeded=function(){if(!r.result.objectStoreNames.contains('snapshots'))r.result.createObjectStore('snapshots');};r.onsuccess=function(){resolve(r.result);};r.onerror=function(){reject(r.error||new Error('open失敗'));};r.onblocked=function(){reject(new Error('open待機'));};});
+}
+async function raw(native,name,value,write){
+ const db=await nativeDB(native,name);
+ try{return await new Promise(function(resolve,reject){let result;const tx=db.transaction('snapshots',write?'readwrite':'readonly'),s=tx.objectStore('snapshots'),r=write?s.put(value,'registered-horses'):s.get('registered-horses');r.onsuccess=function(){result=r.result;};tx.oncomplete=function(){resolve(result);};tx.onabort=function(){reject(tx.error||new Error('transaction中断'));};});}finally{db.close();}
+}
+async function rejects(p,code){let e=null;try{await p;}catch(x){e=x;}assert(e&&e.code===code,'期待エラー '+code+'／実際 '+(e&&e.code||'エラーなし'));return e;}
+root.OwnedHorseSafetyHarnessV1=Object.freeze({PREFIX:PREFIX,EXPECTED:EXPECTED,factory:factory,validate:validate,payload:payload});
+if(!root.document)return;
+const $=function(id){return root.document.getElementById(id);};
+let production=null,busy=false,ready=false,session=null,serial=0,nextGroup='A';
+const entries=[],openRepos=[],names=[];
+function log(msg){entries.push(msg);$('log').textContent=entries.join('\n');}
+function locks(){['A','B','C'].forEach(function(k){$('run'+k).disabled=!ready||busy||k!==nextGroup;});}
+function newName(label){const n=PREFIX+session+'-'+(++serial)+'-'+label;names.push(n);$('dbs').textContent=names.join('\n');return n;}
+function repository(name,c){const r=production.core.create({dbName:name,indexedDB:factory(root.indexedDB,name,c),validateBackup:validate});openRepos.push(r);return r;}
+function controller(repo){
+ let text=payload(2),model=[],draft='未登録の試験用入力',captureFailure=false;
+ const states=[],views=[];
+ const c=production.connection.createController({repository:repo,capturePayload:function(){if(captureFailure){const e=new Error('試験用capture失敗');e.code='TEST_CAPTURE';throw e;}return text;},canApplyLoaded:function(){return model.length===0;},applyLoaded:function(v){model=clone(v.records);},onState:function(s){states.push(clone(s));views.push(production.ui.describe(s,model.length));}});
+ return {c:c,states:states,views:views,set:function(t){text=t;try{model=JSON.parse(t).records;}catch(_){}},failCapture:function(){captureFailure=true;},snapshot:function(){return {model:clone(model),draft:draft};},state:function(){return c.getState();}};
+}
+function successMessage(){return '登録済み2件を端末内に保存しました。';}
+function assertNotSaved(h,start,label){
+ const views=h.views.slice(start);assert(views.length>0,label+'：状態通知あり');
+ assert(views.every(function(v){return v.message!==successMessage();}),label+'：古い成功を新要求の保存成功として表示しない');
+ const v=production.ui.describe(h.state(),2);assert(v.message!==successMessage()&&v.level==='warning'&&v.canRetry,label+'：失敗警告と再保存案内');
+}
+async function groupA(){
+ const n=newName('A-write'),flags={read:0,write:0},r=repository(n,flags),h=controller(r);
+ await h.c.start();h.set(payload(2));await h.c.committed('register');
+ const before=await raw(root.indexedDB,n);h.set(payload(3));const screen=h.snapshot();flags.write=1;
+ await rejects(h.c.committed('edit'),'WRITE_FAILED');
+ assert(h.state().phase==='failed','通常失敗phase');assert(equal(h.snapshot(),screen),'試験モデルの保持');assert(equal(await raw(root.indexedDB,n),before),'失敗前の保存内容保持');
+ assert(production.ui.describe(h.state(),2).canRetry,'再保存案内');await h.c.retry();
+ assert((await raw(root.indexedDB,n)).payload===payload(3),'再保存後payload');assert(h.state().phase==='saved','再保存成功phase');
+ log('A1 合格：書込開始失敗、試験モデル・旧保存保持、再保存と照合');
+ const n2=newName('A-verify'),f2={read:0,write:0},r2=repository(n2,f2),h2=controller(r2);
+ await h2.c.start();h2.set(payload(2));await h2.c.committed('register');h2.set(payload(4));const snap=h2.snapshot();f2.read=1;
+ await rejects(h2.c.committed('edit'),'SAVE_UNCONFIRMED');assert(h2.state().phase==='blocked','結果不明停止');assert(equal(h2.snapshot(),snap),'結果不明時モデル保持');
+ assert(!production.ui.describe(h2.state(),2).canRetry,'強制再保存ボタンなし');const actual=await raw(root.indexedDB,n2);assert(actual.payload===payload(4),'試験監査：書込済み・照合読取失敗');
+ await rejects(h2.c.retry(),'SAVING_BLOCKED');assert(equal(await raw(root.indexedDB,n2),actual),'停止後無変更');
+ log('A2 合格：書込後読取失敗を結果不明として停止。監査では書込済みを確認');
+}
+async function groupB(){
+ const n=newName('B-conflict'),f={read:0,write:0},seed=repository(n,f);await seed.load();await seed.save(payload(2));
+ const left=controller(repository(n,f)),right=controller(repository(n,f));await left.c.start();await right.c.start();
+ right.set(payload(3));await right.c.committed('edit');const newest=await raw(root.indexedDB,n);
+ left.set(payload(4));const screen=left.snapshot();await rejects(left.c.committed('edit'),'CONFLICT');
+ assert(left.state().phase==='blocked','競合停止');assert(equal(await raw(root.indexedDB,n),newest),'新保存の保持');assert(equal(left.snapshot(),screen),'競合側モデル保持');
+ assert(production.ui.describe(left.state(),2).message.indexOf('上書きを止めました')>=0,'競合文言');log('B1 合格：2接続の競合拒否、新保存と試験モデルを保持');
+ const n2=newName('B-queue'),f2={read:0,write:0},h=controller(repository(n2,f2));await h.c.start();
+ h.set(payload(2));const p1=h.c.committed('register');h.set(payload(3));const p2=h.c.committed('edit');await Promise.all([p1,p2]);
+ assert((await raw(root.indexedDB,n2)).payload===payload(3),'最終payload');assert(h.state().latestRequest===h.state().confirmedRequest&&h.state().phase==='saved','最終要求成功');
+ assert(production.ui.describe(h.state(),2).message===successMessage(),'最終成功文言');
+ h.set(payload(4));const p3=h.c.committed('edit');const from=h.views.length;h.set('{invalid');const p4=h.c.committed('edit');await rejects(p4,'INVALID_PAYLOAD');await p3;
+ assert(h.state().phase==='failed'&&h.state().latestRequest!==h.state().confirmedRequest,'新要求失敗保持');assertNotSaved(h,from,'不正payload');
+ assert((await raw(root.indexedDB,n2)).payload===payload(4),'最後に成功したpayload');log('B2 合格：連続保存の最終値・成功文言、新要求失敗時の警告文言');
+ h.set(payload(5));const p5=h.c.committed('edit');const from2=h.views.length;h.failCapture();const p6=h.c.committed('edit');await rejects(p6,'TEST_CAPTURE');
+ const confirmedBefore=h.state().confirmedRequest;await p5;
+ assert(h.state().phase==='failed'&&h.state().errorCode==='TEST_CAPTURE','遅い旧成功後も新失敗保持');assert(h.state().confirmedRequest>confirmedBefore&&h.state().latestRequest>h.state().confirmedRequest,'新失敗後に旧成功到着');
+ assertNotSaved(h,from2,'遅い旧成功');assert((await raw(root.indexedDB,n2)).payload===payload(5),'旧要求の保存内容');log('B3 合格：新要求の取得失敗後に旧成功が到着しても成功表示にしない');
+}
+async function groupC(){
+ for(const kind of ['read','broken','unsupported']){
+  const n=newName('C-'+kind),f={read:0,write:0};
+  const saved=kind==='unsupported'?{kind:'dabimas-owned-horses-persistence',version:99}:kind==='broken'?{kind:'dabimas-owned-horses-persistence',version:1,revision:-1}:{kind:'dabimas-owned-horses-persistence',version:1,revision:1,savedAt:'2026-11-12T00:00:00.000Z',payload:payload(2)};
+  await raw(root.indexedDB,n,saved,true);if(kind==='read')f.read=1;const h=controller(repository(n,f)),before=h.snapshot();
+  const code=kind==='read'?'READ_FAILED':kind==='broken'?'INVALID_ENVELOPE':'UNSUPPORTED_ENVELOPE';await rejects(h.c.start(),code);
+  assert(h.state().phase==='blocked','起動停止');assert(equal(h.snapshot(),before),'起動時モデル無変更');assert(equal(await raw(root.indexedDB,n),saved),'異常データ保持');await rejects(h.c.retry(),'SAVING_BLOCKED');
+  const d=production.ui.describe(h.state(),0);assert(d.message.indexOf('見つかりません')<0&&!d.canRetry,'データなし誤表示なし');log('C '+kind+' 合格：'+code+'、停止・保存内容保持');
+ }
+}
+async function run(k){
+ if(!ready||busy||k!==nextGroup)return;busy=true;locks();log(k+' 開始');const reposAt=openRepos.length;
+ try{await ({A:groupA,B:groupB,C:groupC})[k]();$('result'+k).textContent='限定合格（保存コア・制御・文言／正式アプリ全体ではありません）';log(k+' 完了');nextGroup=({A:'B',B:'C',C:'done'})[k];}
+ catch(e){$('result'+k).textContent='不合格または中断：'+(e.code||e.message);log(k+' 停止：'+(e.code||e.message));ready=false;}
+ finally{openRepos.slice(reposAt).forEach(function(r){try{r.close();}catch(_){}});busy=false;locks();}
+}
+async function setup(){
+ try{
+  assert(root.crypto&&root.crypto.subtle&&root.indexedDB,'必要なブラウザ機能がありません');const bytes=new Uint8Array(12);root.crypto.getRandomValues(bytes);session=Array.from(bytes,function(x){return x.toString(16).padStart(2,'0');}).join('');
+  const u=new URL('horse-persistence-v1.js',root.location.href);assert(u.origin===root.location.origin,'同一サイトの保存JSだけ許可');const res=await fetch(u.href,{cache:'no-store'});assert(res.ok,'保存JSを取得できません');const buf=await res.arrayBuffer();
+  const hash=Array.from(new Uint8Array(await root.crypto.subtle.digest('SHA-256',buf)),function(x){return x.toString(16).padStart(2,'0');}).join('');assert(hash===EXPECTED,'保存JSが確認済み版と異なります。起動停止');
+  (new Function(new TextDecoder().decode(buf)))();assert(root.ownedHorsePersistenceCoreDraftV1&&root.ownedHorsePersistenceConnectionDraftV1&&root.ownedHorsePersistenceUIDraftV1,'保存API不足');
+  production={core:root.ownedHorsePersistenceCoreDraftV1,connection:root.ownedHorsePersistenceConnectionDraftV1,ui:root.ownedHorsePersistenceUIDraftV1};ready=true;
+  $('status').textContent='準備完了。まだDB作成・保存はしていません。Aから順に実行してください。';locks();
+ }catch(e){$('status').textContent='起動停止：'+e.message;log('起動停止：'+e.message);locks();}
+}
+['A','B','C'].forEach(function(k){$('run'+k).addEventListener('click',function(){run(k);});});setup();
+})(typeof globalThis!=='undefined'?globalThis:this);
+</script></html>
